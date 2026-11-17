@@ -32,7 +32,7 @@ def _get_dify_api_key(mode: str) -> tuple:
     return key_val, env_name
 
 
-def _build_query_with_context(mode: str, user_query: str, context_data=None) -> str:
+def _build_query_with_context(mode: str, user_query: str, context_data=None, is_initial: bool = False) -> str:
     """
     Dify 일반 챗봇(Chatbot)이 별도 워크플로우 변수 없이도 근거를 읽을 수 있도록
     query 문자열에 근거 데이터(JSON 또는 계산 수치)를 조합합니다.
@@ -46,6 +46,22 @@ def _build_query_with_context(mode: str, user_query: str, context_data=None) -> 
         context_str = str(context_data)
 
     if mode == "analysis":
+        if is_initial:
+            return (
+                "당신은 한국 주식시장 전문 애널리스트입니다.\n"
+                "아래 수집된 실제 종목 데이터(JSON)만을 근거로, 초보 투자자도 이해하기 쉽게 구조화된 마크다운(Markdown) 종목 분석 리포트를 작성해 주세요.\n"
+                "데이터에 없는 수치나 사실은 절대 추측하거나 지어내지 마세요.\n\n"
+                f"[종목 분석 근거 데이터(JSON)]\n{context_str}\n\n"
+                "[분석 리포트 작성 형식]\n"
+                "### 1. 현재 시세 및 밸류에이션 진단\n"
+                "- 현재가, 시가총액, PER vs 추정PER, PBR, ROE/배당수익률을 근거로 현재 가격 매력도와 고평가/저평가 여부를 설명하세요.\n"
+                "### 2. 연간 실적 추이 및 (E) 추정치 분석\n"
+                "- 매출액·영업이익·ROE의 최근 변화 흐름과 컨센서스(`is_consensus: true`) 추정치의 의미를 정리하세요.\n"
+                "### 3. 최신 뉴스 기반 핵심 모멘텀 및 리스크\n"
+                "- 제공된 뉴스 목록을 바탕으로 긍정 요인(모멘텀)과 주의할 점(리스크)을 정리하세요.\n"
+                "### 4. 종합 요약\n"
+                "- 핵심 포인트 3줄 요약으로 마무리하세요."
+            )
         return (
             f"[종목 분석 근거 데이터(JSON)]\n{context_str}\n\n"
             f"[사용자 질문]\n{user_query}\n\n"
@@ -55,7 +71,7 @@ def _build_query_with_context(mode: str, user_query: str, context_data=None) -> 
         return (
             f"[계산된 기술지표 수치]\n{context_str}\n\n"
             f"[사용자 질문]\n{user_query}\n\n"
-            "위 계산된 기술지표 숫자만을 근거로 초보자도 이해하기 쉽게 설명해 주세요."
+            "위 계산된 기술지표 숫자만을 근거로 초보자도 이해하기 쉽게 마크다운 형식으로 설명해 주세요."
         )
     return f"[참고 데이터]\n{context_str}\n\n[사용자 질문]\n{user_query}"
 
@@ -67,6 +83,7 @@ def ask_dify_chatbot(
     conversation_id: str = "",
     user_id: str = "investment-user",
     timeout: int = 45,
+    is_initial: bool = False,
 ) -> dict:
     """
     Dify 챗봇(/chat-messages) API를 호출합니다.
@@ -102,7 +119,7 @@ def ask_dify_chatbot(
 
     base_url = os.getenv("DIFY_BASE_URL", "https://api.dify.ai/v1").strip().rstrip("/")
     endpoint = f"{base_url}/chat-messages"
-    final_query = _build_query_with_context(mode, query_clean, context_data)
+    final_query = _build_query_with_context(mode, query_clean, context_data, is_initial=is_initial)
 
     headers = {
         "Authorization": f"Bearer {api_key}",

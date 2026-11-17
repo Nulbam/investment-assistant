@@ -603,6 +603,8 @@ body {
     background-color: #ffffff;
     color: #1e293b;
     border: 1px solid #e2e8f0;
+    white-space: normal;
+    line-height: 1.65;
 }
 
 .chat-form {
@@ -740,4 +742,156 @@ body {
     .charts-grid-2 {
         grid-template-columns: 1fr;
     }
+}
+
+/* ==================== 마크다운 채팅 렌더링 & 탭1 가독성 보강 ==================== */
+.chat-messages.tall-chat {
+    height: 580px;
+}
+
+.chat-msg.bot h1,
+.chat-msg.bot h2,
+.chat-msg.bot h3,
+.chat-msg.bot h4 {
+    color: #0f172a;
+    font-weight: 700;
+    margin: 12px 0 6px;
+    line-height: 1.4;
+}
+
+.chat-msg.bot h1:first-child,
+.chat-msg.bot h2:first-child,
+.chat-msg.bot h3:first-child,
+.chat-msg.bot h4:first-child {
+    margin-top: 0;
+}
+
+.chat-msg.bot h3 {
+    font-size: 1.02rem;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 4px;
+}
+
+.chat-msg.bot h4 {
+    font-size: 0.95rem;
+}
+
+.chat-msg.bot p {
+    margin: 6px 0;
+}
+
+.chat-msg.bot ul,
+.chat-msg.bot ol {
+    margin: 6px 0 6px 20px;
+}
+
+.chat-msg.bot li {
+    margin-bottom: 4px;
+}
+
+.chat-msg.bot strong {
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.chat-msg.bot blockquote {
+    border-left: 3px solid #2563eb;
+    background-color: #f8fafc;
+    padding: 6px 12px;
+    margin: 8px 0;
+    color: #475569;
+    border-radius: 0 6px 6px 0;
+}
+
+.chat-msg.bot code {
+    background-color: #f1f5f9;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.86rem;
+    color: #b91c1c;
+}
+
+.chat-msg.bot pre {
+    background-color: #0f172a;
+    color: #e2e8f0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 8px 0;
+}
+
+.chat-msg.bot pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+}
+
+.chat-msg.bot table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 0.85rem;
+}
+
+.chat-msg.bot th,
+.chat-msg.bot td {
+    border: 1px solid #cbd5e1;
+    padding: 6px 8px;
+    text-align: left;
+}
+
+.chat-msg.bot th {
+    background-color: #f1f5f9;
+    font-weight: 600;
+}
+
+/* 탭1 왼쪽 근거 카드 컴팩트 정돈 */
+.compact-header {
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+}
+
+.compact-header .stock-name {
+    font-size: 1.35rem;
+}
+
+.compact-header .current-price {
+    font-size: 1.35rem;
+}
+
+.compact-metrics {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.compact-metrics .metric-item {
+    padding: 8px 10px;
+}
+
+.compact-metrics .metric-value {
+    font-size: 0.94rem;
+}
+
+.sub-section {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.sub-section h4 {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 8px;
+}
+
+.compact-table th,
+.compact-table td {
+    padding: 8px 10px;
+    font-size: 0.84rem;
+}
+
+.json-details {
+    margin-top: 14px;
 }

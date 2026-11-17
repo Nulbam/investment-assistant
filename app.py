@@ -133,39 +133,48 @@ def api_analyze_chat():
     code = str(body.get("code", "")).strip()
     query = str(body.get("query", "")).strip()
     use_tool = bool(body.get("use_tool", True))
+    is_initial = bool(body.get("is_initial", False))
     conversation_id = str(body.get("conversation_id", "")).strip()
+    prefetched = body.get("collected_data")
 
-    logger.info(f"[REQUEST] POST /api/analyze-chat code={code}, use_tool={use_tool}")
+    logger.info(f"[REQUEST] POST /api/analyze-chat code={code}, use_tool={use_tool}, is_initial={is_initial}")
 
-    if not query:
+    if not query and not is_initial:
         return jsonify({"ok": False, "answer": None, "conversation_id": conversation_id, "error": "질문을 입력해 주세요."}), 400
+
+    if is_initial and not query:
+        query = f"{code} 종목에 대한 전문가 심층 분석 리포트를 작성해 주세요."
 
     collected_data = None
     if use_tool:
-        if not code or len(code) != 6 or not code.isdigit():
-            return jsonify({
-                "ok": False,
-                "answer": None,
-                "conversation_id": conversation_id,
-                "error": "근거 수집 분석을 위해 6자리 숫자 종목코드를 입력해 주세요. (예: 000660)"
-            }), 400
+        if isinstance(prefetched, dict) and prefetched.get("name"):
+            collected_data = prefetched
+        elif not conversation_id:
+            if not code or len(code) != 6 or not code.isdigit():
+                return jsonify({
+                    "ok": False,
+                    "answer": None,
+                    "conversation_id": conversation_id,
+                    "error": "근거 수집 분석을 위해 6자리 숫자 종목코드를 입력해 주세요. (예: 000660)"
+                }), 400
 
-        collected_data = fetch_stock_basic(code)
-        if not collected_data.get("name"):
-            errs = collected_data.get("errors") or ["종목 정보를 수집하지 못했습니다."]
-            return jsonify({
-                "ok": False,
-                "answer": None,
-                "conversation_id": conversation_id,
-                "collected_data": collected_data,
-                "error": errs[0]
-            }), 404
+            collected_data = fetch_stock_basic(code)
+            if not collected_data.get("name"):
+                errs = collected_data.get("errors") or ["종목 정보를 수집하지 못했습니다."]
+                return jsonify({
+                    "ok": False,
+                    "answer": None,
+                    "conversation_id": conversation_id,
+                    "collected_data": collected_data,
+                    "error": errs[0]
+                }), 404
 
     dify_res = ask_dify_chatbot(
         mode="analysis",
         user_query=query,
         context_data=collected_data,
-        conversation_id=conversation_id
+        conversation_id=conversation_id,
+        is_initial=is_initial,
     )
 
     status_code = 200 if dify_res["ok"] else 400

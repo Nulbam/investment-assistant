@@ -35,10 +35,24 @@ function showErrorBox(boxEl, messages) {
     boxEl.classList.remove("hidden");
 }
 
+function setBotMessageContent(el, text) {
+    const raw = text || "";
+    if (window.marked && window.DOMPurify) {
+        const html = window.marked.parse(raw, { breaks: true, gfm: true });
+        el.innerHTML = window.DOMPurify.sanitize(html);
+    } else {
+        el.textContent = raw;
+    }
+}
+
 function appendChatMessage(containerEl, role, text) {
     const div = document.createElement("div");
     div.className = `chat-msg ${role}`;
-    div.textContent = text;
+    if (role === "bot") {
+        setBotMessageContent(div, text);
+    } else {
+        div.textContent = text;
+    }
     containerEl.appendChild(div);
     containerEl.scrollTop = containerEl.scrollHeight;
     return div;
@@ -104,11 +118,14 @@ function initExampleChips() {
  * 탭 1: 종목 심층분석 채팅 (collector.py + Dify 챗봇①)
  * ============================================================================ */
 function initTab1Analysis() {
+    const searchForm = document.getElementById("tab1-search-form");
     const codeInput = document.getElementById("tab1-code-input");
+    const analyzeBtn = document.getElementById("tab1-analyze-btn");
     const useToolCheckbox = document.getElementById("tab1-use-tool");
     const errorBox = document.getElementById("tab1-error");
     const evidenceStatus = document.getElementById("tab1-evidence-status");
-    const evidenceSummary = document.getElementById("tab1-evidence-summary");
+    const evidencePlaceholder = document.getElementById("tab1-evidence-placeholder");
+    const evidenceBody = document.getElementById("tab1-evidence-body");
     const jsonPreview = document.getElementById("tab1-json-preview");
 
     const chatMessages = document.getElementById("tab1-chat-messages");
@@ -118,13 +135,111 @@ function initTab1Analysis() {
     const resetBtn = document.getElementById("tab1-chat-reset");
 
     let conversationId = "";
+    let currentCode = "";
+    let cachedCollectedData = null;
 
     resetBtn.addEventListener("click", () => {
         conversationId = "";
         chatMessages.innerHTML = "";
-        appendChatMessage(chatMessages, "bot", "새 대화를 시작합니다. 종목코드를 입력하고 질문해 주세요.");
+        appendChatMessage(chatMessages, "bot", "새 대화를 시작합니다. 상단에서 **종목 조회 및 AI 분석**을 누르거나 질문을 입력해 주세요.");
     });
 
+    // 1. 종목 조회 및 1차 전문가 심층분석 실행
+    searchForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const code = codeInput.value.trim();
+        const useTool = useToolCheckbox.checked;
+
+        if (!/^\d{6}$/.test(code)) {
+            const msg = "종목코드는 6자리 숫자여야 합니다. (예: 000660)";
+            console.error(`[ERROR] ${msg}`);
+            showErrorBox(errorBox, [msg]);
+            return;
+        }
+
+        errorBox.classList.add("hidden");
+        analyzeBtn.disabled = true;
+        chatSendBtn.disabled = true;
+        conversationId = "";
+        cachedCollectedData = null;
+        currentCode = code;
+
+        try {
+            let collectedData = null;
+
+            if (useTool) {
+                evidenceStatus.textContent = "수집 중...";
+                console.log(`[SEARCH] 탭1 종목 데이터 수집 시작 (${code})`);
+
+                const fetchResp = await fetch("/fetch", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ code })
+                });
+                collectedData = await fetchResp.json();
+
+                if (!collectedData.name) {
+                    const errs = collectedData.errors && collectedData.errors.length > 0
+                        ? collectedData.errors
+                        : ["종목 데이터를 수집하지 못했습니다."];
+                    evidenceStatus.textContent = "수집 실패";
+                    showErrorBox(errorBox, errs);
+                    return;
+                }
+
+                cachedCollectedData = collectedData;
+                console.log(`[COLLECT] 근거 데이터 수집 완료 (${collectedData.name})`);
+                renderTab1Evidence(collectedData);
+
+                if (collectedData.errors && collectedData.errors.length > 0) {
+                    showErrorBox(errorBox, collectedData.errors);
+                }
+
+                appendChatMessage(chatMessages, "user", `📊 ${collectedData.name} (${code}) 종목 조회 및 전문가 심층 분석 요청`);
+            } else {
+                evidenceStatus.textContent = "도구 미사용";
+                evidenceBody.classList.add("hidden");
+                evidencePlaceholder.classList.remove("hidden");
+                evidencePlaceholder.textContent = "근거 도구 체크박스가 해제되어 수집 없이 AI에게 직접 질문합니다.";
+                jsonPreview.textContent = "{}";
+                appendChatMessage(chatMessages, "user", `종목코드 ${code} 분석 요청 (근거 도구 미사용)`);
+            }
+
+            const loadingMsg = appendChatMessage(chatMessages, "bot", "전문가 AI가 수집된 데이터를 분석 중입니다...");
+
+            const chatResp = await fetch("/api/analyze-chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    code,
+                    query: `${code} 종목에 대한 전문가 심층 분석 리포트를 작성해 주세요.`,
+                    use_tool: useTool,
+                    is_initial: true,
+                    collected_data: collectedData
+                })
+            });
+            const chatData = await chatResp.json();
+
+            if (!chatData.ok) {
+                setBotMessageContent(loadingMsg, `오류: ${chatData.error || "AI 분석 응답을 가져오지 못했습니다."}`);
+                showErrorBox(errorBox, [chatData.error || "AI 분석 중 오류가 발생했습니다."]);
+                return;
+            }
+
+            conversationId = chatData.conversation_id || "";
+            setBotMessageContent(loadingMsg, chatData.answer || "(빈 응답)");
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            console.log("[CHAT] Dify 1차 전문가 심층분석 수신 완료");
+        } catch (err) {
+            console.error("[ERROR] 탭1 조회 및 분석 중 오류:", err.message);
+            showErrorBox(errorBox, ["서버와 통신하는 중 네트워크 오류가 발생했습니다."]);
+        } finally {
+            analyzeBtn.disabled = false;
+            chatSendBtn.disabled = false;
+        }
+    });
+
+    // 2. 분석 결과를 바탕으로 후속 채팅 이어가기
     chatForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const code = codeInput.value.trim();
@@ -139,6 +254,14 @@ function initTab1Analysis() {
             return;
         }
 
+        // 사용자가 조회 버튼 없이 바로 질문했거나 종목코드를 바꾼 경우
+        const needFreshFetch = useTool && (!conversationId || currentCode !== code);
+        if (currentCode !== code) {
+            conversationId = "";
+            cachedCollectedData = null;
+            currentCode = code;
+        }
+
         errorBox.classList.add("hidden");
         appendChatMessage(chatMessages, "user", query);
         chatInput.value = "";
@@ -147,40 +270,45 @@ function initTab1Analysis() {
         const loadingMsg = appendChatMessage(
             chatMessages,
             "bot",
-            useTool ? "종목 근거 데이터 수집 및 AI 분석 중..." : "AI 답변 생성 중 (근거 도구 미사용)..."
+            needFreshFetch ? "종목 근거 데이터 수집 및 답변 생성 중..." : "이전 분석 맥락을 이어서 답변 작성 중..."
         );
 
-        console.log(`[SEARCH] 탭1 요청 시작 (code=${code}, use_tool=${useTool})`);
+        console.log(`[SEARCH] 탭1 채팅 요청 (code=${code}, use_tool=${useTool}, has_conv=${Boolean(conversationId)})`);
 
         try {
             const resp = await fetch("/api/analyze-chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ code, query, use_tool: useTool, conversation_id: conversationId })
+                body: JSON.stringify({
+                    code,
+                    query,
+                    use_tool: useTool,
+                    is_initial: false,
+                    conversation_id: conversationId,
+                    collected_data: needFreshFetch ? cachedCollectedData : null
+                })
             });
             const data = await resp.json();
 
             if (data.collected_data) {
+                cachedCollectedData = data.collected_data;
                 console.log(`[COLLECT] 근거 데이터 수집 완료 (${data.collected_data.name})`);
                 renderTab1Evidence(data.collected_data);
-            } else if (!useTool) {
-                evidenceStatus.textContent = "도구 미사용";
-                evidenceSummary.textContent = "체크박스가 해제되어 네이버·Serper 근거 없이 질문했습니다.";
-                jsonPreview.textContent = "{}";
             }
 
             if (!data.ok) {
-                loadingMsg.textContent = `오류: ${data.error || "답변을 가져오지 못했습니다."}`;
+                setBotMessageContent(loadingMsg, `오류: ${data.error || "답변을 가져오지 못했습니다."}`);
                 console.error(`[ERROR] ${data.error}`);
                 showErrorBox(errorBox, [data.error || "분석 채팅 처리 중 오류가 발생했습니다."]);
                 return;
             }
 
             conversationId = data.conversation_id || conversationId;
-            loadingMsg.textContent = data.answer || "(빈 응답)";
+            setBotMessageContent(loadingMsg, data.answer || "(빈 응답)");
+            chatMessages.scrollTop = chatMessages.scrollHeight;
             console.log("[CHAT] Dify 챗봇 응답 수신 완료");
         } catch (err) {
-            loadingMsg.textContent = "네트워크 오류가 발생했습니다.";
+            setBotMessageContent(loadingMsg, "네트워크 오류가 발생했습니다.");
             console.error("[ERROR] 탭1 요청 중 오류 발생:", err.message);
             showErrorBox(errorBox, ["서버와 통신하는 중 네트워크 오류가 발생했습니다."]);
         } finally {
@@ -191,20 +319,132 @@ function initTab1Analysis() {
     function renderTab1Evidence(d) {
         const snap = d.snapshot || {};
         evidenceStatus.textContent = `${d.name} (${d.code})`;
-        evidenceSummary.innerHTML = "";
+        evidencePlaceholder.classList.add("hidden");
+        evidenceBody.classList.remove("hidden");
 
-        const lines = [
-            `종목명: ${d.name} (${d.code})`,
-            `현재가: ${formatNumber(snap.current_price, "원")} (등락률: ${snap.change_rate !== null && snap.change_rate !== undefined ? snap.change_rate + "%" : "N/A"})`,
-            `시가총액: ${formatMarketCap(snap.market_cap)}`,
-            `PER: ${formatNumber(snap.per, "배")} / 추정PER: ${formatNumber(snap.cns_per, "배")} / PBR: ${formatNumber(snap.pbr, "배")}`,
-            `연간 실적: ${(d.financials || []).length}개년 / 최신 뉴스: ${(d.news || []).length}건`
+        // 1. 스냅샷 헤더
+        document.getElementById("tab1-stock-code").textContent = d.code || "-";
+        document.getElementById("tab1-stock-name").textContent = d.name || "-";
+
+        const priceEl = document.getElementById("tab1-current-price");
+        const rateEl = document.getElementById("tab1-change-rate");
+        priceEl.textContent = formatNumber(snap.current_price, "원");
+        priceEl.classList.remove("up", "down", "flat");
+        rateEl.classList.remove("up", "down", "flat");
+
+        const rate = snap.change_rate;
+        if (rate === null || rate === undefined) {
+            rateEl.textContent = "N/A";
+            rateEl.classList.add("flat");
+        } else if (rate > 0) {
+            rateEl.textContent = `▲ +${rate.toFixed(2)}%`;
+            priceEl.classList.add("up");
+            rateEl.classList.add("up");
+        } else if (rate < 0) {
+            rateEl.textContent = `▼ ${rate.toFixed(2)}%`;
+            priceEl.classList.add("down");
+            rateEl.classList.add("down");
+        } else {
+            rateEl.textContent = "0.00%";
+            rateEl.classList.add("flat");
+        }
+
+        // 2. 투자지표 7종 그리드
+        const metricsGrid = document.getElementById("tab1-metrics-grid");
+        metricsGrid.innerHTML = "";
+        const metrics = [
+            ["시가총액", formatMarketCap(snap.market_cap)],
+            ["PER", formatNumber(snap.per, "배")],
+            ["추정 PER", formatNumber(snap.cns_per, "배")],
+            ["PBR", formatNumber(snap.pbr, "배")],
+            ["EPS", formatNumber(snap.eps, "원")],
+            ["BPS", formatNumber(snap.bps, "원")],
+            ["배당수익률", formatNumber(snap.dividend_yield, "%")]
         ];
-        lines.forEach((line) => {
-            const p = document.createElement("div");
-            p.textContent = line;
-            evidenceSummary.appendChild(p);
+        metrics.forEach(([label, val]) => {
+            const item = document.createElement("div");
+            item.className = "metric-item";
+            const lbl = document.createElement("span");
+            lbl.className = "metric-label";
+            lbl.textContent = label;
+            const v = document.createElement("span");
+            v.className = "metric-value";
+            v.textContent = val;
+            item.append(lbl, v);
+            metricsGrid.appendChild(item);
         });
+
+        // 3. 연간 기업실적분석 표
+        const tbody = document.getElementById("tab1-financials-tbody");
+        tbody.innerHTML = "";
+        const financials = d.financials || [];
+        if (financials.length === 0) {
+            const tr = document.createElement("tr");
+            const td = document.createElement("td");
+            td.colSpan = 4;
+            td.textContent = "수집된 실적 데이터가 없습니다.";
+            td.style.textAlign = "center";
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+        } else {
+            financials.forEach((item) => {
+                const tr = document.createElement("tr");
+                if (item.is_consensus) tr.classList.add("consensus-row");
+
+                const tdP = document.createElement("td");
+                tdP.textContent = item.period || "-";
+                if (item.is_consensus) {
+                    const badge = document.createElement("span");
+                    badge.className = "consensus-badge";
+                    badge.textContent = "(E) 추정";
+                    tdP.appendChild(badge);
+                }
+
+                const tdR = document.createElement("td");
+                tdR.textContent = formatEok(item.revenue);
+
+                const tdO = document.createElement("td");
+                tdO.textContent = formatEok(item.operating_income);
+                if (item.operating_income !== null && item.operating_income < 0) tdO.classList.add("down");
+
+                const tdRoe = document.createElement("td");
+                tdRoe.textContent = item.roe !== null && item.roe !== undefined ? `${item.roe.toFixed(2)}%` : "N/A";
+                if (item.roe !== null && item.roe < 0) tdRoe.classList.add("down");
+
+                tr.append(tdP, tdR, tdO, tdRoe);
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 4. 최신 관련 뉴스 리스트
+        const newsUl = document.getElementById("tab1-news-list");
+        newsUl.innerHTML = "";
+        const newsList = d.news || [];
+        if (newsList.length === 0) {
+            const li = document.createElement("li");
+            li.className = "empty-message";
+            li.textContent = "수집된 관련 뉴스가 없습니다.";
+            newsUl.appendChild(li);
+        } else {
+            newsList.forEach((item) => {
+                const li = document.createElement("li");
+                li.className = "news-item";
+                const a = document.createElement("a");
+                a.className = "news-title";
+                a.href = item.url && (item.url.startsWith("http://") || item.url.startsWith("https://")) ? item.url : "#";
+                a.target = "_blank";
+                a.rel = "noopener noreferrer";
+                a.textContent = item.title || "제목 없음";
+                li.appendChild(a);
+                if (item.published) {
+                    const dt = document.createElement("div");
+                    dt.className = "news-date";
+                    dt.textContent = item.published;
+                    li.appendChild(dt);
+                }
+                newsUl.appendChild(li);
+            });
+        }
 
         jsonPreview.textContent = JSON.stringify(d, null, 2);
     }
@@ -516,13 +756,14 @@ function initTab3Tech() {
             const data = await resp.json();
 
             if (!data.ok) {
-                loadingMsg.textContent = `오류: ${data.error || "답변을 가져오지 못했습니다."}`;
+                setBotMessageContent(loadingMsg, `오류: ${data.error || "답변을 가져오지 못했습니다."}`);
                 console.error(`[ERROR] ${data.error}`);
                 return;
             }
 
             conversationId = data.conversation_id || conversationId;
-            loadingMsg.textContent = data.answer || "(빈 응답)";
+            setBotMessageContent(loadingMsg, data.answer || "(빈 응답)");
+            chatMessages.scrollTop = chatMessages.scrollHeight;
             console.log("[CHAT] Dify 지표해석기 응답 수신 완료");
         } catch (err) {
             loadingMsg.textContent = "네트워크 오류가 발생했습니다.";
