@@ -1,16 +1,643 @@
 document.addEventListener("DOMContentLoaded", () => {
     console.log("[PAGE] 페이지 로드 완료");
 
+    // 1. /test 페이지(기존 1차 수집기)인 경우 기존 로직 유지
+    if (document.getElementById("search-form")) {
+        initTestCollectorPage();
+    }
+
+    // 2. 메인 3탭 페이지인 경우 탭1·탭2·탭3 초기화
+    if (document.querySelector(".tabs-nav")) {
+        initTabs();
+        initExampleChips();
+        initTab1Analysis();
+        initTab2Rebalance();
+        initTab3Tech();
+    }
+});
+
+/* ============================================================================
+ * 공통 유틸리티
+ * ============================================================================ */
+function showErrorBox(boxEl, messages) {
+    boxEl.innerHTML = "";
+    const title = document.createElement("strong");
+    title.textContent = "안내 / 오류 발생";
+    boxEl.appendChild(title);
+
+    const ul = document.createElement("ul");
+    messages.forEach((msg) => {
+        const li = document.createElement("li");
+        li.textContent = msg;
+        ul.appendChild(li);
+    });
+    boxEl.appendChild(ul);
+    boxEl.classList.remove("hidden");
+}
+
+function appendChatMessage(containerEl, role, text) {
+    const div = document.createElement("div");
+    div.className = `chat-msg ${role}`;
+    div.textContent = text;
+    containerEl.appendChild(div);
+    containerEl.scrollTop = containerEl.scrollHeight;
+    return div;
+}
+
+function formatNumber(val, unit = "") {
+    if (val === null || val === undefined) return "N/A";
+    return `${Number(val).toLocaleString("ko-KR")}${unit}`;
+}
+
+function formatMarketCap(val) {
+    if (val === null || val === undefined) return "N/A";
+    const jo = Math.floor(val / 1_000_000_000_000);
+    const eok = Math.round((val % 1_000_000_000_000) / 100_000_000);
+    if (jo > 0 && eok > 0) {
+        return `${jo.toLocaleString("ko-KR")}조 ${eok.toLocaleString("ko-KR")}억원`;
+    }
+    if (jo > 0) {
+        return `${jo.toLocaleString("ko-KR")}조원`;
+    }
+    return `${eok.toLocaleString("ko-KR")}억원`;
+}
+
+function formatEok(val) {
+    if (val === null || val === undefined) return "N/A";
+    return Math.round(val / 100_000_000).toLocaleString("ko-KR");
+}
+
+/* ============================================================================
+ * 탭 전환 & 예시 칩
+ * ============================================================================ */
+function initTabs() {
+    const tabBtns = document.querySelectorAll(".tab-btn");
+    const tabPanels = document.querySelectorAll(".tab-panel");
+
+    tabBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const targetId = btn.dataset.tab;
+            tabBtns.forEach((b) => b.classList.remove("active"));
+            tabPanels.forEach((p) => p.classList.remove("active"));
+
+            btn.classList.add("active");
+            const targetPanel = document.getElementById(targetId);
+            if (targetPanel) targetPanel.classList.add("active");
+
+            console.log(`[PAGE] 탭 전환 (tab=${targetId})`);
+        });
+    });
+}
+
+function initExampleChips() {
+    document.querySelectorAll(".example-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+            const targetInput = document.getElementById(chip.dataset.target);
+            if (targetInput) {
+                targetInput.value = chip.dataset.code;
+            }
+        });
+    });
+}
+
+/* ============================================================================
+ * 탭 1: 종목 심층분석 채팅 (collector.py + Dify 챗봇①)
+ * ============================================================================ */
+function initTab1Analysis() {
+    const codeInput = document.getElementById("tab1-code-input");
+    const useToolCheckbox = document.getElementById("tab1-use-tool");
+    const errorBox = document.getElementById("tab1-error");
+    const evidenceStatus = document.getElementById("tab1-evidence-status");
+    const evidenceSummary = document.getElementById("tab1-evidence-summary");
+    const jsonPreview = document.getElementById("tab1-json-preview");
+
+    const chatMessages = document.getElementById("tab1-chat-messages");
+    const chatForm = document.getElementById("tab1-chat-form");
+    const chatInput = document.getElementById("tab1-chat-input");
+    const chatSendBtn = document.getElementById("tab1-chat-send");
+    const resetBtn = document.getElementById("tab1-chat-reset");
+
+    let conversationId = "";
+
+    resetBtn.addEventListener("click", () => {
+        conversationId = "";
+        chatMessages.innerHTML = "";
+        appendChatMessage(chatMessages, "bot", "새 대화를 시작합니다. 종목코드를 입력하고 질문해 주세요.");
+    });
+
+    chatForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const code = codeInput.value.trim();
+        const query = chatInput.value.trim();
+        const useTool = useToolCheckbox.checked;
+
+        if (!query) return;
+        if (useTool && !/^\d{6}$/.test(code)) {
+            const msg = "근거 도구 사용 시 6자리 숫자 종목코드를 입력해야 합니다. (예: 000660)";
+            console.error(`[ERROR] ${msg}`);
+            showErrorBox(errorBox, [msg]);
+            return;
+        }
+
+        errorBox.classList.add("hidden");
+        appendChatMessage(chatMessages, "user", query);
+        chatInput.value = "";
+        chatSendBtn.disabled = true;
+
+        const loadingMsg = appendChatMessage(
+            chatMessages,
+            "bot",
+            useTool ? "종목 근거 데이터 수집 및 AI 분석 중..." : "AI 답변 생성 중 (근거 도구 미사용)..."
+        );
+
+        console.log(`[SEARCH] 탭1 요청 시작 (code=${code}, use_tool=${useTool})`);
+
+        try {
+            const resp = await fetch("/api/analyze-chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code, query, use_tool: useTool, conversation_id: conversationId })
+            });
+            const data = await resp.json();
+
+            if (data.collected_data) {
+                console.log(`[COLLECT] 근거 데이터 수집 완료 (${data.collected_data.name})`);
+                renderTab1Evidence(data.collected_data);
+            } else if (!useTool) {
+                evidenceStatus.textContent = "도구 미사용";
+                evidenceSummary.textContent = "체크박스가 해제되어 네이버·Serper 근거 없이 질문했습니다.";
+                jsonPreview.textContent = "{}";
+            }
+
+            if (!data.ok) {
+                loadingMsg.textContent = `오류: ${data.error || "답변을 가져오지 못했습니다."}`;
+                console.error(`[ERROR] ${data.error}`);
+                showErrorBox(errorBox, [data.error || "분석 채팅 처리 중 오류가 발생했습니다."]);
+                return;
+            }
+
+            conversationId = data.conversation_id || conversationId;
+            loadingMsg.textContent = data.answer || "(빈 응답)";
+            console.log("[CHAT] Dify 챗봇 응답 수신 완료");
+        } catch (err) {
+            loadingMsg.textContent = "네트워크 오류가 발생했습니다.";
+            console.error("[ERROR] 탭1 요청 중 오류 발생:", err.message);
+            showErrorBox(errorBox, ["서버와 통신하는 중 네트워크 오류가 발생했습니다."]);
+        } finally {
+            chatSendBtn.disabled = false;
+        }
+    });
+
+    function renderTab1Evidence(d) {
+        const snap = d.snapshot || {};
+        evidenceStatus.textContent = `${d.name} (${d.code})`;
+        evidenceSummary.innerHTML = "";
+
+        const lines = [
+            `종목명: ${d.name} (${d.code})`,
+            `현재가: ${formatNumber(snap.current_price, "원")} (등락률: ${snap.change_rate !== null && snap.change_rate !== undefined ? snap.change_rate + "%" : "N/A"})`,
+            `시가총액: ${formatMarketCap(snap.market_cap)}`,
+            `PER: ${formatNumber(snap.per, "배")} / 추정PER: ${formatNumber(snap.cns_per, "배")} / PBR: ${formatNumber(snap.pbr, "배")}`,
+            `연간 실적: ${(d.financials || []).length}개년 / 최신 뉴스: ${(d.news || []).length}건`
+        ];
+        lines.forEach((line) => {
+            const p = document.createElement("div");
+            p.textContent = line;
+            evidenceSummary.appendChild(p);
+        });
+
+        jsonPreview.textContent = JSON.stringify(d, null, 2);
+    }
+}
+
+/* ============================================================================
+ * 탭 2: 리밸런싱 도우미 (Dify 없음 · 순수 Python + Chart.js)
+ * ============================================================================ */
+function initTab2Rebalance() {
+    const form = document.getElementById("tab2-form");
+    const codesInput = document.getElementById("tab2-codes-input");
+    const calcBtn = document.getElementById("tab2-calc-btn");
+    const loadingBox = document.getElementById("tab2-loading");
+    const errorBox = document.getElementById("tab2-error");
+    const resultBox = document.getElementById("tab2-result");
+
+    let weightChart = null;
+    let frontierChart = null;
+
+    document.querySelectorAll(".preset-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            codesInput.value = btn.dataset.codes;
+        });
+    });
+
+    form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const codes = codesInput.value
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+        if (codes.length < 2) {
+            const msg = "최소 2개 이상의 종목코드를 쉼표(,)로 구분해 입력해 주세요.";
+            console.error(`[ERROR] ${msg}`);
+            showErrorBox(errorBox, [msg]);
+            return;
+        }
+
+        console.log(`[SEARCH] 탭2 리밸런싱 계산 요청 (${codes.join(", ")})`);
+        loadingBox.classList.remove("hidden");
+        errorBox.classList.add("hidden");
+        resultBox.classList.add("hidden");
+        calcBtn.disabled = true;
+
+        try {
+            const resp = await fetch("/api/rebalance", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ codes })
+            });
+            const data = await resp.json();
+
+            if (!data.ok) {
+                console.error(`[ERROR] ${data.error}`);
+                showErrorBox(errorBox, [data.error || "리밸런싱 계산에 실패했습니다."]);
+                return;
+            }
+
+            console.log(`[COLLECT] FDR 최근 1년 계산 완료 (${data.trading_days}거래일, ${data.simulations}회 시뮬레이션)`);
+            renderTab2Result(data);
+            resultBox.classList.remove("hidden");
+            console.log("[CHART] 리밸런싱 비중 및 효율적 프론티어 차트 렌더링 완료");
+        } catch (err) {
+            console.error("[ERROR] 탭2 요청 중 오류 발생:", err.message);
+            showErrorBox(errorBox, ["서버와 통신하는 중 네트워크 오류가 발생했습니다."]);
+        } finally {
+            loadingBox.classList.add("hidden");
+            calcBtn.disabled = false;
+        }
+    });
+
+    function renderTab2Result(data) {
+        document.getElementById("tab2-period").textContent =
+            `분석 기간: ${data.period} (${data.trading_days}거래일 · ${data.simulations.toLocaleString("ko-KR")}회 시뮬레이션)`;
+
+        const rationaleUl = document.getElementById("tab2-rationale");
+        rationaleUl.innerHTML = "";
+        (data.rationale || []).forEach((txt) => {
+            const li = document.createElement("li");
+            li.textContent = txt;
+            rationaleUl.appendChild(li);
+        });
+
+        renderPortCard("tab2-sharpe", data.max_sharpe);
+        renderPortCard("tab2-minvol", data.min_volatility);
+        renderPortCard("tab2-equal", data.equal_weight);
+
+        // 개별 종목 통계 표
+        const tbody = document.getElementById("tab2-stats-tbody");
+        tbody.innerHTML = "";
+        (data.asset_stats || []).forEach((st) => {
+            const tr = document.createElement("tr");
+            const tdName = document.createElement("td");
+            tdName.textContent = `${st.name} (${st.code})`;
+            const tdPrice = document.createElement("td");
+            tdPrice.textContent = formatNumber(st.latest_price, "원");
+            const tdRet = document.createElement("td");
+            tdRet.textContent = `${st.annual_return_pct}%`;
+            if (st.annual_return_pct > 0) tdRet.classList.add("up");
+            else if (st.annual_return_pct < 0) tdRet.classList.add("down");
+            const tdVol = document.createElement("td");
+            tdVol.textContent = `${st.annual_volatility_pct}%`;
+            const tdMdd = document.createElement("td");
+            tdMdd.textContent = `${st.mdd_pct}%`;
+            tdMdd.classList.add("down");
+
+            tr.append(tdName, tdPrice, tdRet, tdVol, tdMdd);
+            tbody.appendChild(tr);
+        });
+
+        // 차트 1: 최대 샤프 비중 도넛 차트
+        if (weightChart) weightChart.destroy();
+        const wItems = data.max_sharpe.weights || [];
+        weightChart = new Chart(document.getElementById("tab2-weight-chart"), {
+            type: "doughnut",
+            data: {
+                labels: wItems.map((w) => `${w.name} (${w.weight_pct}%)`),
+                datasets: [{
+                    data: wItems.map((w) => w.weight_pct),
+                    backgroundColor: ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: "bottom" } }
+            }
+        });
+
+        // 차트 2: 효율적 프론티어 산점도
+        if (frontierChart) frontierChart.destroy();
+        frontierChart = new Chart(document.getElementById("tab2-frontier-chart"), {
+            type: "scatter",
+            data: {
+                datasets: [
+                    {
+                        label: "시뮬레이션 포트폴리오",
+                        data: data.frontier_points || [],
+                        backgroundColor: "rgba(100, 116, 139, 0.35)",
+                        pointRadius: 3
+                    },
+                    {
+                        label: "최대 샤프 비중",
+                        data: [{ x: data.max_sharpe.volatility_pct, y: data.max_sharpe.expected_return_pct }],
+                        backgroundColor: "#2563eb",
+                        pointRadius: 8
+                    },
+                    {
+                        label: "최소 변동성 비중",
+                        data: [{ x: data.min_volatility.volatility_pct, y: data.min_volatility.expected_return_pct }],
+                        backgroundColor: "#16a34a",
+                        pointRadius: 8
+                    },
+                    {
+                        label: "동일 비중 (1/N)",
+                        data: [{ x: data.equal_weight.volatility_pct, y: data.equal_weight.expected_return_pct }],
+                        backgroundColor: "#f59e0b",
+                        pointRadius: 7
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { title: { display: true, text: "연 변동성 (%)" } },
+                    y: { title: { display: true, text: "연 기대수익률 (%)" } }
+                }
+            }
+        });
+    }
+
+    function renderPortCard(prefix, port) {
+        const metricsEl = document.getElementById(`${prefix}-metrics`);
+        const weightsEl = document.getElementById(`${prefix}-weights`);
+        metricsEl.innerHTML = "";
+        weightsEl.innerHTML = "";
+
+        const mLines = [
+            `연 기대수익률: ${port.expected_return_pct}%`,
+            `연 변동성: ${port.volatility_pct}% | 샤프지수: ${port.sharpe_ratio}`,
+            `1년 최대낙폭(MDD): ${port.mdd_pct}%`
+        ];
+        mLines.forEach((line) => {
+            const div = document.createElement("div");
+            div.textContent = line;
+            metricsEl.appendChild(div);
+        });
+
+        (port.weights || []).forEach((w) => {
+            const li = document.createElement("li");
+            const nameSpan = document.createElement("span");
+            nameSpan.textContent = `${w.name} (${w.code})`;
+            const valSpan = document.createElement("strong");
+            valSpan.textContent = `${w.weight_pct}%`;
+            li.append(nameSpan, valSpan);
+            weightsEl.appendChild(li);
+        });
+    }
+}
+
+/* ============================================================================
+ * 탭 3: 기술지표 차트 + 숨은 숫자 주입 Dify 챗봇③
+ * ============================================================================ */
+function initTab3Tech() {
+    const form = document.getElementById("tab3-form");
+    const codeInput = document.getElementById("tab3-code-input");
+    const loadBtn = document.getElementById("tab3-load-btn");
+    const loadingBox = document.getElementById("tab3-loading");
+    const errorBox = document.getElementById("tab3-error");
+    const resultBox = document.getElementById("tab3-result");
+
+    const chatMessages = document.getElementById("tab3-chat-messages");
+    const chatForm = document.getElementById("tab3-chat-form");
+    const chatInput = document.getElementById("tab3-chat-input");
+    const chatSendBtn = document.getElementById("tab3-chat-send");
+    const resetBtn = document.getElementById("tab3-chat-reset");
+
+    let currentSummary = null;
+    let currentCode = "";
+    let conversationId = "";
+    let priceChart = null;
+    let rsiChart = null;
+    let macdChart = null;
+
+    form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const code = codeInput.value.trim();
+
+        if (!/^\d{6}$/.test(code)) {
+            const msg = "종목코드는 6자리 숫자여야 합니다. (예: 000660)";
+            console.error(`[ERROR] ${msg}`);
+            showErrorBox(errorBox, [msg]);
+            return;
+        }
+
+        console.log(`[SEARCH] 탭3 기술지표 계산 요청 (${code})`);
+        loadingBox.classList.remove("hidden");
+        errorBox.classList.add("hidden");
+        resultBox.classList.add("hidden");
+        loadBtn.disabled = true;
+
+        try {
+            const resp = await fetch("/api/indicators", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code })
+            });
+            const data = await resp.json();
+
+            if (!data.ok) {
+                console.error(`[ERROR] ${data.error}`);
+                showErrorBox(errorBox, [data.error || "기술지표 계산에 실패했습니다."]);
+                return;
+            }
+
+            currentSummary = data.latest_summary;
+            currentCode = data.code;
+            conversationId = "";
+            console.log(`[COLLECT] 기술지표 계산 완료 (${data.name}, RSI14=${currentSummary.rsi14})`);
+
+            renderTab3Charts(data);
+            resultBox.classList.remove("hidden");
+            console.log("[CHART] 주가·MA·볼린저·RSI·MACD 차트 렌더링 완료");
+        } catch (err) {
+            console.error("[ERROR] 탭3 조회 중 오류 발생:", err.message);
+            showErrorBox(errorBox, ["서버와 통신하는 중 네트워크 오류가 발생했습니다."]);
+        } finally {
+            loadingBox.classList.add("hidden");
+            loadBtn.disabled = false;
+        }
+    });
+
+    resetBtn.addEventListener("click", () => {
+        conversationId = "";
+        chatMessages.innerHTML = "";
+        appendChatMessage(chatMessages, "bot", "새 대화를 시작합니다. 차트의 지표 수치에 대해 질문해 주세요.");
+    });
+
+    chatForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const query = chatInput.value.trim();
+        if (!query) return;
+
+        if (!currentSummary) {
+            showErrorBox(errorBox, ["먼저 종목코드로 차트 및 지표를 계산해 주세요."]);
+            return;
+        }
+
+        errorBox.classList.add("hidden");
+        appendChatMessage(chatMessages, "user", query);
+        chatInput.value = "";
+        chatSendBtn.disabled = true;
+
+        const loadingMsg = appendChatMessage(chatMessages, "bot", "계산된 지표 수치를 기반으로 설명을 작성 중...");
+
+        try {
+            const resp = await fetch("/api/tech-chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    code: currentCode,
+                    query,
+                    latest_summary: currentSummary,
+                    conversation_id: conversationId
+                })
+            });
+            const data = await resp.json();
+
+            if (!data.ok) {
+                loadingMsg.textContent = `오류: ${data.error || "답변을 가져오지 못했습니다."}`;
+                console.error(`[ERROR] ${data.error}`);
+                return;
+            }
+
+            conversationId = data.conversation_id || conversationId;
+            loadingMsg.textContent = data.answer || "(빈 응답)";
+            console.log("[CHAT] Dify 지표해석기 응답 수신 완료");
+        } catch (err) {
+            loadingMsg.textContent = "네트워크 오류가 발생했습니다.";
+            console.error("[ERROR] 탭3 채팅 중 오류 발생:", err.message);
+        } finally {
+            chatSendBtn.disabled = false;
+        }
+    });
+
+    function renderTab3Charts(data) {
+        const s = data.latest_summary;
+        const ser = data.series;
+
+        document.getElementById("tab3-stock-title").textContent = `${data.name} (${data.code}) 최신 기술지표`;
+        document.getElementById("tab3-latest-date").textContent = `기준일: ${s.date}`;
+
+        const summaryBar = document.getElementById("tab3-summary-bar");
+        summaryBar.innerHTML = "";
+        const badges = [
+            ["종가", formatNumber(s.close, "원")],
+            ["MA 5 / 20", `${formatNumber(s.ma5)} / ${formatNumber(s.ma20)}`],
+            ["MA 60", formatNumber(s.ma60, "원")],
+            ["RSI (14)", s.rsi14 !== null ? `${s.rsi14}` : "N/A"],
+            ["MACD / Signal", `${s.macd} / ${s.macd_signal}`],
+            ["볼린저 상/하단", `${formatNumber(s.bb_upper)} / ${formatNumber(s.bb_lower)}`]
+        ];
+        badges.forEach(([label, val]) => {
+            const item = document.createElement("div");
+            item.className = "metric-item";
+            const lbl = document.createElement("span");
+            lbl.className = "metric-label";
+            lbl.textContent = label;
+            const v = document.createElement("span");
+            v.className = "metric-value";
+            v.textContent = val;
+            item.append(lbl, v);
+            summaryBar.appendChild(item);
+        });
+
+        // 1. 주가 + MA + 볼린저밴드 차트
+        if (priceChart) priceChart.destroy();
+        priceChart = new Chart(document.getElementById("tab3-price-chart"), {
+            type: "line",
+            data: {
+                labels: ser.dates,
+                datasets: [
+                    { label: "종가", data: ser.close, borderColor: "#0f172a", borderWidth: 2, pointRadius: 0 },
+                    { label: "MA5", data: ser.ma5, borderColor: "#ef4444", borderWidth: 1.3, pointRadius: 0 },
+                    { label: "MA20", data: ser.ma20, borderColor: "#2563eb", borderWidth: 1.3, pointRadius: 0 },
+                    { label: "MA60", data: ser.ma60, borderColor: "#16a34a", borderWidth: 1.3, pointRadius: 0 },
+                    { label: "BB 상단", data: ser.bb_upper, borderColor: "#94a3b8", borderDash: [4, 4], borderWidth: 1, pointRadius: 0 },
+                    { label: "BB 하단", data: ser.bb_lower, borderColor: "#94a3b8", borderDash: [4, 4], borderWidth: 1, pointRadius: 0 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: "index", intersect: false }
+            }
+        });
+
+        // 2. RSI(14) 차트
+        if (rsiChart) rsiChart.destroy();
+        rsiChart = new Chart(document.getElementById("tab3-rsi-chart"), {
+            type: "line",
+            data: {
+                labels: ser.dates,
+                datasets: [
+                    { label: "RSI(14)", data: ser.rsi14, borderColor: "#8b5cf6", borderWidth: 2, pointRadius: 0 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { y: { min: 0, max: 100 } }
+            }
+        });
+
+        // 3. MACD 차트
+        if (macdChart) macdChart.destroy();
+        macdChart = new Chart(document.getElementById("tab3-macd-chart"), {
+            type: "bar",
+            data: {
+                labels: ser.dates,
+                datasets: [
+                    { type: "line", label: "MACD", data: ser.macd, borderColor: "#2563eb", borderWidth: 1.8, pointRadius: 0 },
+                    { type: "line", label: "Signal", data: ser.macd_signal, borderColor: "#f59e0b", borderWidth: 1.5, pointRadius: 0 },
+                    {
+                        type: "bar",
+                        label: "Histogram",
+                        data: ser.macd_hist,
+                        backgroundColor: (ser.macd_hist || []).map((v) => (v >= 0 ? "rgba(22, 163, 74, 0.5)" : "rgba(239, 68, 68, 0.5)"))
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+    }
+}
+
+/* ============================================================================
+ * 기존 1차 수집기 (/test) 전용 초기화 (보존)
+ * ============================================================================ */
+function initTestCollectorPage() {
     const searchForm = document.getElementById("search-form");
     const codeInput = document.getElementById("stock-code-input");
     const searchBtn = document.getElementById("search-btn");
     const exampleBtns = document.querySelectorAll(".example-btn");
-
     const loadingBox = document.getElementById("loading-box");
     const errorBox = document.getElementById("error-box");
     const resultSection = document.getElementById("result-section");
 
-    // 예시 종목 버튼 클릭 시 즉시 조회
     exampleBtns.forEach((btn) => {
         btn.addEventListener("click", () => {
             const code = btn.dataset.code;
@@ -19,29 +646,21 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // 검색 폼 제출 이벤트
     searchForm.addEventListener("submit", (e) => {
         e.preventDefault();
-        const code = codeInput.value.trim();
-        fetchStockData(code);
+        fetchStockData(codeInput.value.trim());
     });
 
-    /**
-     * 백엔드 POST /fetch 호출 및 결과 처리
-     */
     async function fetchStockData(code) {
-        // 6자리 숫자 문자열 검증
         if (!/^\d{6}$/.test(code)) {
             const msg = "종목코드는 6자리 숫자여야 합니다. (예: 000660)";
             console.error(`[ERROR] 수집 중 오류 발생 (${msg})`);
-            showError([msg]);
+            showErrorBox(errorBox, [msg]);
             resultSection.classList.add("hidden");
             return;
         }
 
         console.log(`[SEARCH] 종목 수집 요청 시작 (${code})`);
-
-        // UI 상태 초기화 (로딩 표시)
         loadingBox.classList.remove("hidden");
         errorBox.classList.add("hidden");
         resultSection.classList.add("hidden");
@@ -50,239 +669,107 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const response = await fetch("/fetch", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ code })
             });
-
             const data = await response.json();
 
-            // 종목명 자체를 가져오지 못한 치명적 오류 처리
             if (!data.name) {
-                const errs = data.errors && data.errors.length > 0
-                    ? data.errors
-                    : ["종목 데이터를 불러오지 못했습니다."];
+                const errs = data.errors && data.errors.length > 0 ? data.errors : ["종목 데이터를 불러오지 못했습니다."];
                 console.error("[ERROR] 수집 중 오류 발생:", errs);
-                showError(errs);
+                showErrorBox(errorBox, errs);
                 return;
             }
 
-            const currentPrice = data.snapshot ? data.snapshot.current_price : null;
-            console.log(`[PARSED] 기본 정보 수집 완료 (${data.name}, 현재가: ${currentPrice})`);
-            console.log(`[NEWS] 뉴스 수집 완료 (${(data.news || []).length}건)`);
-
-            // 부분 오류(예: 뉴스 또는 실적 일부 실패)가 있는 경우 경고 표시 후 정상 영역은 렌더링
             if (data.errors && data.errors.length > 0) {
-                console.warn("[ERROR] 일부 영역 수집 중 오류 발생:", data.errors);
-                showError(data.errors);
+                showErrorBox(errorBox, data.errors);
             }
 
-            renderResult(data);
-            resultSection.classList.remove("hidden");
-            console.log("[RENDER] 화면 데이터 카드 렌더링 완료");
+            document.getElementById("stock-code").textContent = data.code || "-";
+            document.getElementById("stock-name").textContent = data.name || "-";
+            const snap = data.snapshot || {};
+            const priceEl = document.getElementById("current-price");
+            const rateEl = document.getElementById("change-rate");
+            priceEl.textContent = formatNumber(snap.current_price, "원");
+            priceEl.classList.remove("up", "down", "flat");
+            rateEl.classList.remove("up", "down", "flat");
 
+            const rate = snap.change_rate;
+            if (rate === null || rate === undefined) {
+                rateEl.textContent = "N/A";
+                rateEl.classList.add("flat");
+            } else if (rate > 0) {
+                rateEl.textContent = `▲ +${rate.toFixed(2)}%`;
+                priceEl.classList.add("up");
+                rateEl.classList.add("up");
+            } else if (rate < 0) {
+                rateEl.textContent = `▼ ${rate.toFixed(2)}%`;
+                priceEl.classList.add("down");
+                rateEl.classList.add("down");
+            } else {
+                rateEl.textContent = "0.00%";
+                rateEl.classList.add("flat");
+            }
+
+            document.getElementById("market-cap").textContent = formatMarketCap(snap.market_cap);
+            document.getElementById("per").textContent = formatNumber(snap.per, "배");
+            document.getElementById("cns-per").textContent = formatNumber(snap.cns_per, "배");
+            document.getElementById("pbr").textContent = formatNumber(snap.pbr, "배");
+            document.getElementById("eps").textContent = formatNumber(snap.eps, "원");
+            document.getElementById("bps").textContent = formatNumber(snap.bps, "원");
+            document.getElementById("dividend-yield").textContent = formatNumber(snap.dividend_yield, "%");
+
+            const tbody = document.getElementById("financials-tbody");
+            tbody.innerHTML = "";
+            (data.financials || []).forEach((item) => {
+                const tr = document.createElement("tr");
+                if (item.is_consensus) tr.classList.add("consensus-row");
+                const tdP = document.createElement("td");
+                tdP.textContent = item.period || "-";
+                if (item.is_consensus) {
+                    const b = document.createElement("span");
+                    b.className = "consensus-badge";
+                    b.textContent = "(E) 추정";
+                    tdP.appendChild(b);
+                }
+                const tdR = document.createElement("td");
+                tdR.textContent = formatEok(item.revenue);
+                const tdO = document.createElement("td");
+                tdO.textContent = formatEok(item.operating_income);
+                const tdRoe = document.createElement("td");
+                tdRoe.textContent = item.roe !== null && item.roe !== undefined ? `${item.roe.toFixed(2)}%` : "N/A";
+                tr.append(tdP, tdR, tdO, tdRoe);
+                tbody.appendChild(tr);
+            });
+
+            const ul = document.getElementById("news-list");
+            ul.innerHTML = "";
+            (data.news || []).forEach((item) => {
+                const li = document.createElement("li");
+                li.className = "news-item";
+                const a = document.createElement("a");
+                a.className = "news-title";
+                a.href = item.url && (item.url.startsWith("http://") || item.url.startsWith("https://")) ? item.url : "#";
+                a.target = "_blank";
+                a.rel = "noopener noreferrer";
+                a.textContent = item.title || "제목 없음";
+                li.appendChild(a);
+                if (item.published) {
+                    const dt = document.createElement("div");
+                    dt.className = "news-date";
+                    dt.textContent = item.published;
+                    li.appendChild(dt);
+                }
+                ul.appendChild(li);
+            });
+
+            resultSection.classList.remove("hidden");
         } catch (err) {
             console.error("[ERROR] 수집 중 오류 발생:", err.message);
-            showError(["서버와 통신하는 중 네트워크 오류가 발생했습니다. Flask 서버가 실행 중인지 확인해 주세요."]);
+            showErrorBox(errorBox, ["서버와 통신하는 중 네트워크 오류가 발생했습니다."]);
         } finally {
             loadingBox.classList.add("hidden");
             searchBtn.disabled = false;
         }
     }
-
-    /**
-     * 오류 메시지 박스 렌더링 (XSS 방지용 textContent 사용)
-     */
-    function showError(messages) {
-        errorBox.innerHTML = "";
-        const title = document.createElement("strong");
-        title.textContent = "안내 / 오류 발생";
-        errorBox.appendChild(title);
-
-        const ul = document.createElement("ul");
-        messages.forEach((msg) => {
-            const li = document.createElement("li");
-            li.textContent = msg;
-            ul.appendChild(li);
-        });
-        errorBox.appendChild(ul);
-        errorBox.classList.remove("hidden");
-    }
-
-    /**
-     * 수집된 JSON 데이터를 화면 카드, 실적 표, 뉴스 리스트에 렌더링
-     */
-    function renderResult(data) {
-        renderSnapshot(data.code, data.name, data.snapshot || {});
-        renderFinancials(data.financials || []);
-        renderNews(data.news || []);
-    }
-
-    function renderSnapshot(code, name, snapshot) {
-        document.getElementById("stock-code").textContent = code || "-";
-        document.getElementById("stock-name").textContent = name || "-";
-
-        const priceEl = document.getElementById("current-price");
-        const rateEl = document.getElementById("change-rate");
-
-        priceEl.textContent = formatNumber(snapshot.current_price, "원");
-
-        // 등락률 색상 클래스 초기화 후 적용
-        priceEl.classList.remove("up", "down", "flat");
-        rateEl.classList.remove("up", "down", "flat");
-
-        const rate = snapshot.change_rate;
-        if (rate === null || rate === undefined) {
-            rateEl.textContent = "N/A";
-            rateEl.classList.add("flat");
-        } else if (rate > 0) {
-            rateEl.textContent = `▲ +${rate.toFixed(2)}%`;
-            priceEl.classList.add("up");
-            rateEl.classList.add("up");
-        } else if (rate < 0) {
-            rateEl.textContent = `▼ ${rate.toFixed(2)}%`;
-            priceEl.classList.add("down");
-            rateEl.classList.add("down");
-        } else {
-            rateEl.textContent = "0.00%";
-            rateEl.classList.add("flat");
-        }
-
-        document.getElementById("market-cap").textContent = formatMarketCap(snapshot.market_cap);
-        document.getElementById("per").textContent = formatNumber(snapshot.per, "배");
-        document.getElementById("cns-per").textContent = formatNumber(snapshot.cns_per, "배");
-        document.getElementById("pbr").textContent = formatNumber(snapshot.pbr, "배");
-        document.getElementById("eps").textContent = formatNumber(snapshot.eps, "원");
-        document.getElementById("bps").textContent = formatNumber(snapshot.bps, "원");
-        document.getElementById("dividend-yield").textContent = formatNumber(snapshot.dividend_yield, "%");
-    }
-
-    function renderFinancials(financials) {
-        const tbody = document.getElementById("financials-tbody");
-        tbody.innerHTML = "";
-
-        if (!financials || financials.length === 0) {
-            const tr = document.createElement("tr");
-            const td = document.createElement("td");
-            td.colSpan = 4;
-            td.textContent = "수집된 기업실적 데이터가 없습니다.";
-            td.style.textAlign = "center";
-            tr.appendChild(td);
-            tbody.appendChild(tr);
-            return;
-        }
-
-        financials.forEach((item) => {
-            const tr = document.createElement("tr");
-            if (item.is_consensus) {
-                tr.classList.add("consensus-row");
-            }
-
-            // 1. 기간 (+ 추정치 뱃지)
-            const tdPeriod = document.createElement("td");
-            tdPeriod.textContent = item.period || "-";
-            if (item.is_consensus) {
-                const badge = document.createElement("span");
-                badge.className = "consensus-badge";
-                badge.textContent = "(E) 추정";
-                tdPeriod.appendChild(badge);
-            }
-            tr.appendChild(tdPeriod);
-
-            // 2. 매출액 (억원 단위 변환)
-            const tdRev = document.createElement("td");
-            tdRev.textContent = formatEok(item.revenue);
-            tr.appendChild(tdRev);
-
-            // 3. 영업이익 (억원 단위 변환)
-            const tdOp = document.createElement("td");
-            tdOp.textContent = formatEok(item.operating_income);
-            if (item.operating_income !== null && item.operating_income < 0) {
-                tdOp.classList.add("down");
-            }
-            tr.appendChild(tdOp);
-
-            // 4. ROE (%)
-            const tdRoe = document.createElement("td");
-            tdRoe.textContent = item.roe !== null && item.roe !== undefined
-                ? `${item.roe.toFixed(2)}%`
-                : "N/A";
-            if (item.roe !== null && item.roe < 0) {
-                tdRoe.classList.add("down");
-            }
-            tr.appendChild(tdRoe);
-
-            tbody.appendChild(tr);
-        });
-    }
-
-    function renderNews(newsList) {
-        const ul = document.getElementById("news-list");
-        ul.innerHTML = "";
-
-        if (!newsList || newsList.length === 0) {
-            const li = document.createElement("li");
-            li.className = "empty-message";
-            li.textContent = "수집된 관련 뉴스가 없습니다.";
-            ul.appendChild(li);
-            return;
-        }
-
-        newsList.forEach((item) => {
-            const li = document.createElement("li");
-            li.className = "news-item";
-
-            const link = document.createElement("a");
-            link.className = "news-title";
-            const safeUrl = item.url && (item.url.startsWith("http://") || item.url.startsWith("https://"))
-                ? item.url
-                : "#";
-            link.href = safeUrl;
-            link.target = "_blank";
-            link.rel = "noopener noreferrer";
-            link.textContent = item.title || "제목 없음";
-            li.appendChild(link);
-
-            if (item.description) {
-                const desc = document.createElement("p");
-                desc.className = "news-desc";
-                desc.textContent = item.description;
-                li.appendChild(desc);
-            }
-
-            if (item.published) {
-                const dateEl = document.createElement("div");
-                dateEl.className = "news-date";
-                dateEl.textContent = item.published;
-                li.appendChild(dateEl);
-            }
-
-            ul.appendChild(li);
-        });
-    }
-
-    // 숫자 포맷팅 헬퍼
-    function formatNumber(val, unit = "") {
-        if (val === null || val === undefined) return "N/A";
-        return `${val.toLocaleString("ko-KR")}${unit}`;
-    }
-
-    function formatMarketCap(val) {
-        if (val === null || val === undefined) return "N/A";
-        const jo = Math.floor(val / 1_000_000_000_000);
-        const eok = Math.round((val % 1_000_000_000_000) / 100_000_000);
-        if (jo > 0 && eok > 0) {
-            return `${jo.toLocaleString("ko-KR")}조 ${eok.toLocaleString("ko-KR")}억원`;
-        }
-        if (jo > 0) {
-            return `${jo.toLocaleString("ko-KR")}조원`;
-        }
-        return `${eok.toLocaleString("ko-KR")}억원`;
-    }
-
-    function formatEok(val) {
-        if (val === null || val === undefined) return "N/A";
-        return Math.round(val / 100_000_000).toLocaleString("ko-KR");
-    }
-});
+}
