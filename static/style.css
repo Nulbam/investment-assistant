@@ -1,0 +1,363 @@
+/* 기본 초기화 */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+    background-color: #f4f6f9;
+    color: #1e293b;
+    line-height: 1.6;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.container {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 36px 20px 60px;
+}
+
+/* 헤더 */
+.header {
+    text-align: center;
+    margin-bottom: 28px;
+}
+
+.header h1 {
+    font-size: 1.85rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 8px;
+}
+
+.subtitle {
+    color: #64748b;
+    font-size: 0.95rem;
+}
+
+/* 검색창 구역 */
+.search-section {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 22px 24px;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+    margin-bottom: 20px;
+}
+
+.search-form {
+    display: flex;
+    gap: 10px;
+}
+
+.search-form input {
+    flex: 1;
+    padding: 12px 16px;
+    font-size: 1rem;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 8px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.search-form input:focus {
+    border-color: #2563eb;
+}
+
+.search-form button {
+    padding: 12px 24px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #ffffff;
+    background-color: #2563eb;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.search-form button:hover {
+    background-color: #1d4ed8;
+}
+
+.search-form button:disabled {
+    background-color: #94a3b8;
+    cursor: not-allowed;
+}
+
+.quick-examples {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 0.85rem;
+    color: #64748b;
+}
+
+.example-btn {
+    padding: 4px 10px;
+    font-size: 0.82rem;
+    color: #334155;
+    background-color: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.example-btn:hover {
+    background-color: #e2e8f0;
+    color: #0f172a;
+}
+
+/* 로딩 및 오류 박스 */
+.loading-box {
+    text-align: center;
+    padding: 18px;
+    margin-bottom: 20px;
+    background-color: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    font-weight: 500;
+}
+
+.error-box {
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    background-color: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    font-size: 0.92rem;
+}
+
+.error-box ul {
+    margin-left: 18px;
+    margin-top: 4px;
+}
+
+/* 공통 카드 */
+.card {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+    margin-bottom: 20px;
+}
+
+.card h3 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+/* 1. 스냅샷 카드 */
+.stock-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 18px;
+    border-bottom: 1px solid #e2e8f0;
+    margin-bottom: 18px;
+    gap: 16px;
+}
+
+.stock-code-badge {
+    display: inline-block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #475569;
+    background-color: #f1f5f9;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+}
+
+.stock-name {
+    font-size: 1.65rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.price-box {
+    text-align: right;
+}
+
+.current-price {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.change-rate {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+/* 한국 증시 색상 규칙: 상승 빨강 / 하락 파랑 */
+.up {
+    color: #d60000;
+}
+
+.down {
+    color: #0051c7;
+}
+
+.flat {
+    color: #64748b;
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.metric-item {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.metric-label {
+    font-size: 0.82rem;
+    color: #64748b;
+}
+
+.metric-value {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+/* 2. 기업실적분석 표 */
+.section-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 14px;
+}
+
+.unit-note {
+    font-size: 0.82rem;
+    color: #64748b;
+}
+
+.table-wrapper {
+    overflow-x: auto;
+}
+
+.financials-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.94rem;
+}
+
+.financials-table th,
+.financials-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: right;
+}
+
+.financials-table th:first-child,
+.financials-table td:first-child {
+    text-align: left;
+}
+
+.financials-table thead th {
+    background-color: #f8fafc;
+    color: #475569;
+    font-weight: 600;
+}
+
+.consensus-row {
+    background-color: #fffbeb;
+}
+
+.consensus-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #b45309;
+    background-color: #fef3c7;
+    border: 1px solid #fde68a;
+    border-radius: 4px;
+}
+
+/* 3. 최신 뉴스 리스트 */
+.news-card h3 {
+    margin-bottom: 14px;
+}
+
+.news-list {
+    list-style: none;
+}
+
+.news-item {
+    padding: 14px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.news-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.news-title {
+    display: inline-block;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1e40af;
+    text-decoration: none;
+    margin-bottom: 4px;
+}
+
+.news-title:hover {
+    text-decoration: underline;
+}
+
+.news-desc {
+    font-size: 0.88rem;
+    color: #475569;
+    margin-bottom: 4px;
+}
+
+.news-date {
+    font-size: 0.8rem;
+    color: #94a3b8;
+}
+
+.empty-message {
+    color: #64748b;
+    font-size: 0.92rem;
+    padding: 8px 0;
+}
+
+/* 모바일 대응 */
+@media (max-width: 600px) {
+    .search-form {
+        flex-direction: column;
+    }
+
+    .stock-header {
+        flex-direction: column;
+    }
+
+    .price-box {
+        text-align: left;
+    }
+}
